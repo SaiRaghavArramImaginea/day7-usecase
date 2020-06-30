@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="255b04eb-3b50-4ed8-97a0-b1052f1e1159" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="1dbfb9b4-041d-4b43-96a1-9224a269ee9d" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="pramati" database="day7" />
+	</db:config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="2bfda2ee-5134-4f1c-b448-98b48dbd5e03" >
+		<file:connection workingDir="/home/sairaghav/AnypointStudio/studio-workspace/mule/day7/output" />
+	</file:config>
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="db785e92-f4ed-48ae-86a8-e4d3531a186f" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://PRINHYLTPDL1589:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="e461bb02-8db2-4f61-9ea0-de3855cf59ca" >
+		<http:request-connection host="localhost" port="8081" />
+	</http:request-config>
+	<flow name="day7-usecaseFlow" doc:id="f62ec484-f495-4fd0-bc40-c562079954b8" >
+		<http:listener doc:name="Listener" doc:id="17dedbf0-4406-4e92-b895-6c21d0354a4d" config-ref="HTTP_Listener_config" path="/students"/>
+		<logger level="INFO" doc:name="Logger" doc:id="c71a295b-e193-48ea-b731-3f5ec3b65cfd" />
+		<try doc:name="Try" doc:id="2512a09d-6639-4d93-a1a5-5e9534851b52" >
+			<db:insert doc:name="Insert" doc:id="761fec49-68b1-4d0f-9a19-b4ea07ef514f" config-ref="Database_Config">
+				<db:sql ><![CDATA[INSERT INTO day7.EmployeeInfo
+           (`FirstName`, `LastName`, `Contact`)
+     VALUES(:firstName,:lastName, :contact)]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{"firstName" : payload.firstName, "lastName" : payload.lastName, "contact" : payload.contact}]]]></db:input-parameters>
+			</db:insert>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="a851c25a-6510-473c-bbe3-99beb18f92d5" type="ANY">
+					<file:write doc:name="Write" doc:id="651a9668-a7da-47cd-a4c7-d376f7fce9a5" config-ref="File_Config" path="#['UnProcessed_File' ++ (now() as String {format:'yyyy-MM-dd-hh-mm-ss.SSS'}) ++ '.json']"/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="61b51d8a-2d61-4f3f-a74c-a0bf8c55de93">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="day7-usecaseFlow1" doc:id="5a4c38be-3916-4a91-95e9-683d465c696f" >
+		<file:listener doc:name="On New or Updated File" doc:id="e441f3fd-3014-4d8b-88f5-5c908a32d90a" config-ref="File_Config" autoDelete="true">
+			<scheduling-strategy >
+				<fixed-frequency />
+			</scheduling-strategy>
+		</file:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="32f0f69e-0088-4ea7-88fa-6eb4719c03d9" message="#[payload]"/>
+		<choice doc:name="Choice" doc:id="75a6961a-e794-417e-9294-0208cb9455af">
+			<when expression="#[payload.id != 'x']">
+				<jms:publish doc:name="Publish" doc:id="910796ae-fc12-4463-b2c4-698c672127f0" config-ref="JMS_Config" destination="Employees">
+					<error-mapping targetType="APP:app1" />
+				</jms:publish>
+				<logger level="INFO" doc:name="Logger" doc:id="f95d1d84-0e5c-4cae-8c2c-1141ce7d5156" message="#[payload]"/>
+			</when>
+			<otherwise >
+				<jms:publish doc:name="Publish" doc:id="8cd0e074-8e3c-42ff-bf71-eaab3b011e93" config-ref="JMS_Config" destination="Employee_Bad_Records">
+					<error-mapping targetType="APP:app1" />
+				</jms:publish>
+				<logger level="INFO" doc:name="Logger" doc:id="1a28a05d-4d9e-4c40-b4a5-4d64300cafd9" message="#[payload]"/>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="day7-usecaseFlow2" doc:id="27fd49e9-d2ac-4f74-8edf-3717e913d0de" >
+		<scheduler doc:name="Scheduler" doc:id="09eb5d38-5642-4a4f-8180-07f818aae4a1">
+			<scheduling-strategy>
+				<fixed-frequency frequency="5000"/>
+			</scheduling-strategy>
+		</scheduler>
+		<jms:consume doc:name="Consume" doc:id="bb933079-e4e8-47f7-9c16-0dfda6be8bd1" config-ref="JMS_Config" destination="Employees"/>
+		<logger level="INFO" doc:name="Logger" doc:id="2bfc5f1b-739b-45d1-a604-ab128f5de19f" />
+		<http:request method="POST" doc:name="Request" doc:id="60476700-3d60-40cb-a6f1-3d4852e00e7e" config-ref="HTTP_Request_configuration" path="/students"/>
+	</flow>
+</mule>
